@@ -71,6 +71,10 @@ const getAllCampaigns = async (req, res) => {
       .limit(limit)
       .select('-impactReports'); // Exclude detailed reports for listing
 
+    // Get total count for pagination
+    const total = await Campaign.countDocuments(filter);
+    const totalPages = Math.ceil(total / limit);
+
     // If request has a token, mark campaigns liked by this user
     try {
       const user = await getUserFromReq(req);
@@ -96,9 +100,6 @@ const getAllCampaigns = async (req, res) => {
     } catch (e) {
       // non-fatal: fall through to return campaigns as-is
     }
-    
-    const total = await Campaign.countDocuments(filter);
-    const totalPages = Math.ceil(total / limit);
     
     res.json({
       campaigns,
