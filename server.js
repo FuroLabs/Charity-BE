@@ -37,9 +37,11 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
 
 // CORS configuration - ensure this runs before rate limiting so preflight/options get CORS headers
 const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map(url => url.trim()) : ['http://localhost:5173', 'http://localhost:3000'],
   credentials: true,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization']
 };
 app.use(cors(corsOptions));
 // Respond to preflight requests globally
