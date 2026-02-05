@@ -74,6 +74,27 @@ app.use('/api/uploads', require('./routes/uploads'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/admin', require('./routes/admin'));
 
+// Root/Info endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'ImpactHub API is running',
+    version: '1.0.0',
+    endpoints: [
+      '/api/health',
+      '/api/auth',
+      '/api/users',
+      '/api/campaigns',
+      '/api/donations',
+      '/api/analytics',
+      '/api/avatars',
+      '/api/uploads',
+      '/api/notifications',
+      '/api/admin'
+    ]
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({ 
@@ -124,55 +145,56 @@ app.use('*', (req, res) => {
 });
 
 // Database connection
+let mongoConnected = false;
+
 const connectDB = async () => {
+  if (mongoConnected && mongoose.connection.readyState === 1) {
+    return;
+  }
+
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/impacthub');
+    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/impacthub', {
+      retryWrites: true,
+      w: 'majority',
+      maxPoolSize: 10,
+    });
+    mongoConnected = true;
     
     if (process.env.NODE_ENV !== 'production') {
       console.log(`MongoDB connected: ${conn.connection.host}`);
     }
   } catch (error) {
     console.error('MongoDB connection error:', error);
-    process.exit(1);
+    mongoConnected = false;
   }
 };
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  if (process.env.NODE_ENV !== 'production') {
+// Connect to DB on first request
+app.use(async (req, res, next) => {
+  await connectDB();
+  next();
+});
+
+// Graceful shutdown for local development
+if (process.env.NODE_ENV !== 'production') {
+  process.on('SIGTERM', async () => {
     console.log('SIGTERM received. Shutting down gracefully...');
-  }
-  await mongoose.connection.close();
-  process.exit(0);
-});
+    await mongoose.connection.close();
+    process.exit(0);
+  });
 
-process.on('SIGINT', async () => {
-  if (process.env.NODE_ENV !== 'production') {
+  process.on('SIGINT', async () => {
     console.log('SIGINT received. Shutting down gracefully...');
-  }
-  await mongoose.connection.close();
-  process.exit(0);
-});
+    await mongoose.connection.close();
+    process.exit(0);
+  });
 
-const PORT = process.env.PORT || 5000;
-
-// Start server
-const startServer = async () => {
-  try {
-    await connectDB();
-    app.listen(PORT, () => {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`🚀 Server is running on port ${PORT}`);
-        console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
-        console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-      }
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  }
-};
-
-startServer();
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+}
 
 module.exports = app;
