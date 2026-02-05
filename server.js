@@ -22,7 +22,9 @@ if (missingEnvVars.length > 0) {
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 // Serve static files for uploads BEFORE CORS middleware (keeps long-term cache headers)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
   setHeaders: (res, path) => {

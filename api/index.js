@@ -20,7 +20,9 @@ if (missingEnvVars.length > 0) {
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 
 // CORS configuration - must handle preflight properly
 const allowedOrigins = [
