@@ -115,6 +115,81 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Initialize MongoDB connection (reuse existing connections in Vercel)
+let mongoConnected = false;
+let connectionAttempted = false;
+
+const connectDB = async () => {
+  // If already connected, return immediately
+  if (mongoConnected && mongoose.connection.readyState === 1) {
+    return true;
+  }
+
+  // If connection is in progress, wait for it
+  if (mongoose.connection.readyState === 2) {
+    console.log('MongoDB connection already in progress, waiting...');
+    await new Promise((resolve) => {
+      mongoose.connection.once('connected', resolve);
+      setTimeout(resolve, 15000); // Timeout after 15s
+    });
+    return mongoose.connection.readyState === 1;
+  }
+
+  // Attempt new connection
+  try {
+    if (!process.env.MONGODB_URI) {
+      console.error('MONGODB_URI environment variable is not set!');
+      throw new Error('MONGODB_URI is required');
+    }
+    
+    console.log('Attempting MongoDB connection...');
+    connectionAttempted = true;
+    
+    await mongoose.connect(process.env.MONGODB_URI, {
+      retryWrites: true,
+      w: 'majority',
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 10000, // Fail fast after 10s
+      socketTimeoutMS: 45000,
+    });
+    
+    mongoConnected = true;
+    console.log('MongoDB connected successfully');
+    return true;
+  } catch (error) {
+    console.error('MongoDB connection failed:', error.message);
+    if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
+      console.error('DNS resolution failed - check MONGODB_URI hostname');
+    } else if (error.message.includes('authentication failed')) {
+      console.error('Authentication failed - check MongoDB credentials');
+    } else if (error.message.includes('timeout')) {
+      console.error('Connection timeout - check MongoDB Atlas IP whitelist (allow 0.0.0.0/0 for Vercel)');
+    }
+    mongoConnected = false;
+    return false;
+  }
+};
+
+// Connect to DB on first request with error handling
+app.use(async (req, res, next) => {
+  try {
+    const connected = await connectDB();
+    if (!connected) {
+      return res.status(503).json({ 
+        error: 'Database connection unavailable',
+        message: 'Unable to connect to MongoDB. Please check server logs.'
+      });
+    }
+    next();
+  } catch (error) {
+    console.error('DB connection middleware error:', error);
+    res.status(503).json({ 
+      error: 'Database connection failed',
+      message: process.env.NODE_ENV === 'development' ? error.message : 'Service temporarily unavailable'
+    });
+  }
+});
+
 // Routes - fix relative paths for serverless environment
 const routesPath = path.join(__dirname, '../routes');
 app.use('/api/auth', require(path.join(routesPath, 'auth')));
@@ -173,34 +248,6 @@ app.use('*', (req, res) => {
     error: 'Route not found',
     path: req.originalUrl 
   });
-});
-
-// Initialize MongoDB connection (reuse existing connections in Vercel)
-let mongoConnected = false;
-
-const connectDB = async () => {
-  if (mongoConnected && mongoose.connection.readyState === 1) {
-    return;
-  }
-
-  try {
-    await mongoose.connect(process.env.MONGODB_URI, {
-      retryWrites: true,
-      w: 'majority',
-      maxPoolSize: 10,
-    });
-    mongoConnected = true;
-    console.log('MongoDB connected');
-  } catch (error) {
-    console.error('MongoDB connection error:', error.message);
-    mongoConnected = false;
-  }
-};
-
-// Connect to DB on first request
-app.use(async (req, res, next) => {
-  await connectDB();
-  next();
 });
 
 module.exports = app;

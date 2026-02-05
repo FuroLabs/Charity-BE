@@ -111,7 +111,11 @@ const getAllCampaigns = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching campaigns:', error);
-    res.status(500).json({ error: 'Failed to fetch campaigns' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to fetch campaigns',
+      message: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
