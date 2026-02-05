@@ -48,26 +48,26 @@ app.use(morgan('combined'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Serve static files for uploads
-app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
-  setHeaders: (res, filePath) => {
-    res.set('Access-Control-Allow-Origin', process.env.CLIENT_URL || 'http://localhost:5173');
-    res.set('Access-Control-Allow-Credentials', 'true');
-    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.set('Cache-Control', 'public, max-age=31536000');
-  }
-}));
-
-// Routes
-app.use('/api/auth', require('../routes/auth'));
-app.use('/api/users', require('../routes/users'));
-app.use('/api/campaigns', require('../routes/campaigns'));
-app.use('/api/donations', require('../routes/donations'));
-app.use('/api/analytics', require('../routes/analytics'));
-app.use('/api/avatars', require('../routes/avatars'));
-app.use('/api/uploads', require('../routes/uploads'));
-app.use('/api/notifications', require('../routes/notifications'));
-app.use('/api/admin', require('../routes/admin'));
+// Root/Info endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'ImpactHub API is running',
+    version: '1.0.0',
+    endpoints: [
+      '/api/health',
+      '/api/auth',
+      '/api/users',
+      '/api/campaigns',
+      '/api/donations',
+      '/api/analytics',
+      '/api/avatars',
+      '/api/uploads',
+      '/api/notifications',
+      '/api/admin'
+    ]
+  });
+});
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -79,7 +79,29 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Error handling middleware
+// Routes - fix relative paths for serverless environment
+const routesPath = path.join(__dirname, '../routes');
+app.use('/api/auth', require(path.join(routesPath, 'auth')));
+app.use('/api/users', require(path.join(routesPath, 'users')));
+app.use('/api/campaigns', require(path.join(routesPath, 'campaigns')));
+app.use('/api/donations', require(path.join(routesPath, 'donations')));
+app.use('/api/analytics', require(path.join(routesPath, 'analytics')));
+app.use('/api/avatars', require(path.join(routesPath, 'avatars')));
+app.use('/api/uploads', require(path.join(routesPath, 'uploads')));
+app.use('/api/notifications', require(path.join(routesPath, 'notifications')));
+app.use('/api/admin', require(path.join(routesPath, 'admin')));
+
+// Serve static files for uploads
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
+  setHeaders: (res, filePath) => {
+    res.set('Access-Control-Allow-Origin', process.env.CLIENT_URL || 'http://localhost:5173');
+    res.set('Access-Control-Allow-Credentials', 'true');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.set('Cache-Control', 'public, max-age=31536000');
+  }
+}));
+
+// Error handling middleware (must be last)
 app.use((err, req, res, next) => {
   console.error('Error:', err.stack);
   
@@ -109,7 +131,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 404 handler
+// 404 handler (must be after all other routes)
 app.use('*', (req, res) => {
   res.status(404).json({ 
     error: 'Route not found',
