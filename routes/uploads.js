@@ -2,29 +2,34 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
+const { put, del } = require('@vercel/blob');
 const auth = require('../middleware/auth');
 const authorize = require('../middleware/authorize');
 const router = express.Router();
 
+const useBlobStorage = !!process.env.BLOB_READ_WRITE_TOKEN;
+
 // Configure multer for campaign image uploads
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../uploads/campaigns');
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error);
-    }
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename with UUID and timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const filename = `campaign-${uniqueSuffix}${ext}`;
-    cb(null, filename);
-  }
-});
+const storage = useBlobStorage
+  ? multer.memoryStorage()
+  : multer.diskStorage({
+      destination: async (req, file, cb) => {
+        const uploadDir = path.join(__dirname, '../uploads/campaigns');
+        try {
+          await fs.mkdir(uploadDir, { recursive: true });
+          cb(null, uploadDir);
+        } catch (error) {
+          cb(error);
+        }
+      },
+      filename: (req, file, cb) => {
+        // Generate unique filename with UUID and timestamp
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        const filename = `campaign-${uniqueSuffix}${ext}`;
+        cb(null, filename);
+      }
+    });
 
 const fileFilter = (req, file, cb) => {
   // Accept only image files
@@ -58,14 +63,36 @@ router.post('/campaign-images',
         });
       }
 
-      // Create response with uploaded file URLs
-      const uploadedImages = req.files.map(file => ({
-        filename: file.filename,
-        url: `/uploads/campaigns/${file.filename}`,
-        originalName: file.originalname,
-        size: file.size,
-        mimetype: file.mimetype
-      }));
+      let uploadedImages = [];
+
+      if (useBlobStorage) {
+        uploadedImages = await Promise.all(req.files.map(async (file) => {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+          const ext = path.extname(file.originalname) || '';
+          const filename = `campaign-${uniqueSuffix}${ext}`;
+          const blob = await put(`campaigns/${filename}`, file.buffer, {
+            access: 'public',
+            contentType: file.mimetype
+          });
+
+          return {
+            filename,
+            url: blob.url,
+            originalName: file.originalname,
+            size: file.size,
+            mimetype: file.mimetype
+          };
+        }));
+      } else {
+        // Create response with uploaded file URLs
+        uploadedImages = req.files.map(file => ({
+          filename: file.filename,
+          url: `/uploads/campaigns/${file.filename}`,
+          originalName: file.originalname,
+          size: file.size,
+          mimetype: file.mimetype
+        }));
+      }
 
       res.status(200).json({
         success: true,
@@ -76,8 +103,8 @@ router.post('/campaign-images',
     } catch (error) {
       console.error('Campaign image upload error:', error);
       
-      // Delete uploaded files if there was an error
-      if (req.files) {
+      // Delete uploaded files if there was an error (local disk only)
+      if (!useBlobStorage && req.files) {
         for (const file of req.files) {
           try {
             await fs.unlink(file.path);
@@ -112,6 +139,16 @@ router.delete('/campaign-images/:filename',
         });
       }
 
+      if (useBlobStorage) {
+        const blobKey = filename.startsWith('http') ? filename : `campaigns/${filename}`;
+        await del(blobKey);
+
+        return res.status(200).json({
+          success: true,
+          message: 'Image deleted successfully'
+        });
+      }
+
       const imagePath = path.join(__dirname, '../uploads/campaigns', filename);
       
       // Check if file exists and delete it
@@ -142,6 +179,13 @@ router.delete('/campaign-images/:filename',
 // Serve campaign images with proper CORS headers
 router.get('/campaigns/:filename', async (req, res) => {
   try {
+    if (useBlobStorage) {
+      return res.status(404).json({
+        error: 'Image not found',
+        message: 'Campaign images are served from blob URLs. Use the stored image URL instead.'
+      });
+    }
+
     const { filename } = req.params;
     
     // Validate filename to prevent directory traversal
