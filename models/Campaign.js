@@ -281,6 +281,20 @@ campaignSchema.virtual('donationProgress').get(function() {
   };
 });
 
+// Currency symbol virtual
+campaignSchema.virtual('currencySymbol').get(function() {
+  const currencySymbols = {
+    'LKR': 'Rs',
+    'USD': '$',
+    'EUR': '€',
+    'GBP': '£',
+    'CAD': 'CA$',
+    'AUD': 'A$',
+    'INR': '₹'
+  };
+  return currencySymbols[this.currency] || this.currency;
+});
+
 // Pre-save middleware
 campaignSchema.pre('save', function(next) {
   // Set duration based on start and end dates
@@ -401,9 +415,5 @@ campaignSchema.statics.getTrending = function(limit = 10) {
     { $limit: limit }
   ]);
 };
-
-module.exports = mongoose.model('Campaign', campaignSchema);
-
-campaignSchema.set('toJSON', { virtuals: true });
 
 module.exports = mongoose.model('Campaign', campaignSchema);
